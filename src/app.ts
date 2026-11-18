@@ -35,7 +35,7 @@ export function createApp(): express.Express {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.CORS_ORIGIN.split(',').map((o) => o.trim()),
+      origin: env.CORS_ORIGINS,
       exposedHeaders: ['Content-Disposition'],
     }),
   );

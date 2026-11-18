@@ -55,6 +55,13 @@ const envSchema = z
     }
     return {
       ...data,
+      /**
+       * Allowed web origins. Browsers send `Origin` without a path or trailing slash, so
+       * `https://app.example.com/` is normalised to `https://app.example.com`.
+       */
+      CORS_ORIGINS: data.CORS_ORIGIN.split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
       JWT_SECRET: jwtSecret,
       DIRECT_DATABASE_URL: data.DIRECT_DATABASE_URL ?? data.DATABASE_URL,
     };

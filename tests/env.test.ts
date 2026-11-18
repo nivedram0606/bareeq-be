@@ -30,3 +30,14 @@ describe('JWT_SECRET', () => {
     expect(a).not.toMatch(/dev-only/);
   });
 });
+
+describe('CORS_ORIGIN', () => {
+  it('ignores trailing slashes and spaces, and accepts a comma-separated list', () => {
+    const env = parseEnv({
+      ...base,
+      NODE_ENV: 'test',
+      CORS_ORIGIN: 'https://bareeq.netlify.app/ , http://localhost:5173',
+    });
+    expect(env.CORS_ORIGINS).toEqual(['https://bareeq.netlify.app', 'http://localhost:5173']);
+  });
+});
