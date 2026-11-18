@@ -7,6 +7,7 @@ import { pinoHttp } from 'pino-http';
 import type { HealthResponse } from '@bareeq/shared';
 
 import { env } from './config/env.js';
+import { docsRoutes } from './docs/docs.routes.js';
 import { logger } from './lib/logger.js';
 import { authenticate } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -87,6 +88,9 @@ export function createApp(): express.Express {
   api.use(staffRoutes);
   api.use(reportsRoutes);
   api.use(exportRoutes);
+
+  // API docs: Swagger UI at /api/docs, spec at /api/v1/openapi.json (public; disable with API_DOCS=false).
+  if (env.API_DOCS) app.use(docsRoutes());
 
   app.use('/api/v1', api);
 

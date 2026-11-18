@@ -44,6 +44,9 @@ importers:
       postgres:
         specifier: ^4.1.1
         version: 4.1.1
+      swagger-ui-express:
+        specifier: ^5.0.1
+        version: 5.0.1(express@5.3.0)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -63,6 +66,9 @@ importers:
       '@types/supertest':
         specifier: ^7.2.1
         version: 7.2.1
+      '@types/swagger-ui-express':
+        specifier: ^4.1.8
+        version: 4.1.8
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
@@ -692,6 +698,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@scarf/scarf@1.4.0':
+    resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
+
   '@types/archiver@8.0.0':
     resolution: {integrity: sha512-YpXPbEuv9+eUIPPQWUPahj3cvs9isWRuF+J4z+KbdYVDO3rWorWQFxUVHnwPu2AgKwvgpki5F2VMX0Xx+mX45A==}
 
@@ -751,6 +760,9 @@ packages:
 
   '@types/supertest@7.2.1':
     resolution: {integrity: sha512-4CbBvoYVLHL7+yhbYrZET0vsvuyXTC05aRe7dNQkwMzm56auceoy6Yu3K50uZmwfHna1os3CMSgM/3QVkUtPTw==}
+
+  '@types/swagger-ui-express@4.1.8':
+    resolution: {integrity: sha512-AhZV8/EIreHFmBV5wAs0gzJUNq9JbbSXgJLQubCC0jtIo6prnI9MIRRxnU4MZX9RB9yXxF1V4R7jtLl/Wcj31g==}
 
   '@vitest/expect@3.2.7':
     resolution: {integrity: sha512-E8eBXaKibuvH2pSZErOjdVb5vF4PbKYcrnluBTYxEk1l/VhhwZg1kZQsdtjq+CsF5CFydf2Rdkz7jDHKSisi3w==}
@@ -1554,6 +1566,15 @@ packages:
     resolution: {integrity: sha512-hR0dKRUE+PwZhHLdq/GRhf97HbUQte+AhbpWBQ9nh02tpjujVJj0GY4aygd1dAKdNZ7UZexWHpeItyJi/jLsgw==}
     engines: {node: '>=14.18.0'}
 
+  swagger-ui-dist@5.35.0:
+    resolution: {integrity: sha512-U06rpMtW9V3XPGOBeamTUSr0Z09jMX4IJuANpE/EZbAhw0G8CgwrzU4YmXkn/h0wCDNsXdGarTNNHC3sU8yVUQ==}
+
+  swagger-ui-express@5.0.1:
+    resolution: {integrity: sha512-SrNU3RiBGTLLmFU8GIJdOdanJTl4TOmT27tt3bWWHppqYmAZ6IDuEuBvMU6nZq0zLEe6b/1rACXCgLZqO6ZfrA==}
+    engines: {node: '>= v0.10.32'}
+    peerDependencies:
+      express: '>=4.0.0 || >=5.0.0-beta'
+
   tar-stream@3.2.2:
     resolution: {integrity: sha512-+8NeqHRjQWH9nYlwo2gamAMImZCVzI4UoEgDpWorBt9OEfppiZn+uSkskzQKPWIZyji/C8fpWO7u69G0DX0tbg==}
 
@@ -2033,6 +2054,8 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.68.5':
     optional: true
 
+  '@scarf/scarf@1.4.0': {}
+
   '@types/archiver@8.0.0':
     dependencies:
       '@types/node': 22.20.5
@@ -2111,6 +2134,11 @@ snapshots:
     dependencies:
       '@types/methods': 1.1.4
       '@types/superagent': 8.1.11
+
+  '@types/swagger-ui-express@4.1.8':
+    dependencies:
+      '@types/express': 5.0.6
+      '@types/serve-static': 2.2.0
 
   '@vitest/expect@3.2.7':
     dependencies:
@@ -2960,6 +2988,15 @@ snapshots:
       superagent: 10.4.2
     transitivePeerDependencies:
       - supports-color
+
+  swagger-ui-dist@5.35.0:
+    dependencies:
+      '@scarf/scarf': 1.4.0
+
+  swagger-ui-express@5.0.1(express@5.3.0):
+    dependencies:
+      express: 5.3.0
+      swagger-ui-dist: 5.35.0
 
   tar-stream@3.2.2(bare-buffer@3.7.3):
     dependencies:

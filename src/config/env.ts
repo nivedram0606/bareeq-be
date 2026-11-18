@@ -34,6 +34,12 @@ const envSchema = z
      */
     SETUP_TOKEN: z.string().min(24, 'SETUP_TOKEN must be at least 24 characters').optional(),
 
+    /** Serve Swagger UI at /api/docs and the OpenAPI spec at /api/v1/openapi.json. */
+    API_DOCS: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
+
     SEED_ADMIN_USERNAME: z.string().min(3).optional(),
     SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   })

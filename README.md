@@ -51,6 +51,13 @@ Username + password, handled by the API itself (no external auth service):
   Password changes sign the user out on every other device.
 - First admin: `pnpm db:seed`, or `POST /api/v1/setup/admin` (see `docs/prod-deployment.md`).
 
+### API documentation (Swagger)
+Interactive docs are served at **`/api/docs`** (e.g. `http://localhost:4000/api/docs`), and the
+OpenAPI 3.1 spec at `/api/v1/openapi.json`. Sign in with `POST /auth/login`, click **Authorize**
+and paste the `token` to try protected endpoints. The spec is generated from the shared Zod
+schemas in `src/docs/openapi.ts`; add new endpoints to `ROUTES` there (a test fails if one is
+missing). Set `API_DOCS=false` to turn the docs off.
+
 ### Development
 ```bash
 pnpm dev
