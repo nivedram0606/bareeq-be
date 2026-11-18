@@ -4,12 +4,16 @@ import postgres from 'postgres';
 import { env } from '../config/env.js';
 
 import * as schema from './schema.js';
+import { getDatabaseSslOption } from './ssl.js';
 
-/** `prepare: false` is required by the Supavisor transaction-mode pooler. */
+const ssl = getDatabaseSslOption(env.DATABASE_URL, env.DATABASE_SSL);
+
+/** `prepare: false` is required by transaction-mode poolers (Supavisor / PgBouncer). */
 export const sqlClient = postgres(env.DATABASE_URL, {
   prepare: false,
   max: env.NODE_ENV === 'test' ? 4 : 10,
   onnotice: () => undefined,
+  ...(ssl !== undefined ? { ssl } : {}),
 });
 
 export const db = drizzle(sqlClient, { schema });
