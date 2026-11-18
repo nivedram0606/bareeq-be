@@ -26,7 +26,7 @@ cp .env.example .env
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@127.0.0.1:5432/bareeq` |
 | `DIRECT_DATABASE_URL` | Optional: direct connection for migrations | *(defaults to `DATABASE_URL`)* |
 | `DATABASE_SSL` | Optional: SSL mode (`require`, `prefer`, `disable`) | *(auto-detected for remote hosts)* |
-| `JWT_SECRET` | Signs session tokens; 32+ random chars, required in production | `openssl rand -base64 48` |
+| `JWT_SECRET` | Signs session tokens; 32+ random chars. Required in production; if unset elsewhere a random one is generated per start | `openssl rand -base64 48` |
 | `SESSION_TTL_HOURS` | Optional: how long a sign-in lasts (default 12) | `12` |
 | `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | First admin created by `pnpm db:seed` | `admin` |
 | `CORS_ORIGIN` | Allowed frontend origin | `http://localhost:5173` |

@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { z } from 'zod';
 
 const url = z.url();
@@ -36,13 +38,20 @@ const envSchema = z
     SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   })
   .transform((data) => {
-    const jwtSecret =
-      data.JWT_SECRET ??
-      (data.NODE_ENV !== 'production'
-        ? 'dev-only-insecure-jwt-secret-change-me-0123456789'
-        : undefined);
+    let jwtSecret = data.JWT_SECRET;
     if (!jwtSecret) {
-      throw new Error('JWT_SECRET is required in production (32+ random characters).');
+      if (data.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET is required in production (32+ random characters).');
+      }
+      // Never a fixed fallback: a known secret would let anyone forge tokens if a server ever
+      // runs without NODE_ENV=production. A random one is safe; restarts just sign users out.
+      jwtSecret = randomBytes(48).toString('base64');
+      if (data.NODE_ENV !== 'test') {
+        console.warn(
+          'JWT_SECRET is not set: using a random secret for this process. ' +
+            'Sessions end when the API restarts. Set JWT_SECRET in .env to keep them.',
+        );
+      }
     }
     return {
       ...data,
