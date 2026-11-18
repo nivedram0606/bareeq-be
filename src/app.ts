@@ -12,10 +12,12 @@ import { authenticate } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { academicYearsRoutes } from './modules/academicYears/academicYears.routes.js';
+import { authRoutes, publicAuthRoutes } from './modules/auth/auth.routes.js';
 import { classesRoutes } from './modules/classes/classes.routes.js';
 import { exportRoutes } from './modules/export/export.routes.js';
 import { feesRoutes } from './modules/fees/fees.routes.js';
 import { guardiansRoutes } from './modules/guardians/guardians.routes.js';
+import { orgController } from './modules/org/org.controller.js';
 import { orgRoutes } from './modules/org/org.routes.js';
 import { orgService } from './modules/org/org.service.js';
 import { paymentsRoutes } from './modules/payments/payments.routes.js';
@@ -63,11 +65,17 @@ export function createApp(): express.Express {
     res.json(await orgService.branding());
   });
 
+  api.get('/orgs/:id/logo', orgController.logo);
+
+  // Public sign-in.
+  api.use(publicAuthRoutes);
+
   // Public, token-guarded one-time setup of the first admin (disabled unless SETUP_TOKEN is set).
   api.use(setupRoutes);
 
-  // Everything below requires a valid Supabase session.
+  // Everything below requires a valid session token.
   api.use(authenticate);
+  api.use(authRoutes);
   api.use(usersRoutes);
   api.use(orgRoutes);
   api.use(academicYearsRoutes);

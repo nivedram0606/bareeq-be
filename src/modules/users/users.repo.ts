@@ -13,6 +13,7 @@ type ProfileInsert = typeof profiles.$inferInsert;
 export const toProfileDto = (r: ProfileRow): ProfileDto => ({
   id: r.id,
   orgId: r.orgId,
+  username: r.username,
   fullName: r.fullName,
   email: r.email,
   role: r.role,
@@ -24,6 +25,15 @@ export const usersRepo = {
   /** Unscoped lookup by auth user id — only for authentication, which establishes the org. */
   async findById(id: string, ex: Executor = db): Promise<ProfileRow | undefined> {
     const [row] = await ex.select().from(profiles).where(eq(profiles.id, id));
+    return row;
+  },
+
+  /** Case-insensitive lookup by login name — only for sign-in. */
+  async findByUsername(username: string, ex: Executor = db): Promise<ProfileRow | undefined> {
+    const [row] = await ex
+      .select()
+      .from(profiles)
+      .where(sql`lower(${profiles.username}) = ${username.toLowerCase()}`);
     return row;
   },
 
@@ -41,13 +51,19 @@ export const usersRepo = {
       q.search
         ? or(
             ilike(profiles.fullName, likePattern(q.search)),
+            ilike(profiles.username, likePattern(q.search)),
             ilike(profiles.email, likePattern(q.search)),
           )
         : undefined,
     );
     const orderBy = orderByOf(
       q.sort,
-      { fullName: profiles.fullName, email: profiles.email, role: profiles.role },
+      {
+        fullName: profiles.fullName,
+        username: profiles.username,
+        email: profiles.email,
+        role: profiles.role,
+      },
       sql`${profiles.fullName} asc`,
     );
     const [rows, [{ total } = { total: 0 }]] = await Promise.all([
@@ -79,11 +95,21 @@ export const usersRepo = {
     return row;
   },
 
+  /** Stores a new password hash and revokes every existing session token of the user. */
+  async setPassword(ex: Executor, id: string, passwordHash: string): Promise<boolean> {
+    const rows = await ex
+      .update(profiles)
+      .set({ passwordHash, sessionVersion: sql`${profiles.sessionVersion} + 1` })
+      .where(eq(profiles.id, id))
+      .returning({ id: profiles.id });
+    return rows.length > 0;
+  },
+
   async update(
     ex: Executor,
     orgId: string,
     id: string,
-    patch: Partial<Pick<ProfileRow, 'role' | 'isActive'>>,
+    patch: Partial<Pick<ProfileRow, 'role' | 'isActive' | 'passwordHash'>>,
   ): Promise<ProfileRow | undefined> {
     const [row] = await ex
       .update(profiles)

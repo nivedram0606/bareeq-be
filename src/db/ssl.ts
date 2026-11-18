@@ -29,7 +29,7 @@ export function getDatabaseSslOption(
   if (isLocal) {
     return undefined;
   }
-  // For remote database connections (Supabase, cloud servers), enable SSL with rejectUnauthorized: false
+  // For remote database connections (managed Postgres, cloud servers), enable SSL with rejectUnauthorized: false
   // to support cloud certificates and proxies out of the box
   return { rejectUnauthorized: false };
 }

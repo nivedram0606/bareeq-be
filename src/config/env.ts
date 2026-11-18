@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { z } from 'zod';
 
 const url = z.url();
@@ -18,14 +20,13 @@ const envSchema = z
     /** Database SSL mode: 'require', 'prefer', 'disable', or boolean. Auto-detected for remote hosts. */
     DATABASE_SSL: z.enum(['true', 'false', 'require', 'prefer', 'allow', 'disable']).optional(),
 
-    /** Supabase project URL (e.g. https://<project>.supabase.co or self-hosted). */
-    SUPABASE_URL: url,
-    /** Supabase service_role secret key for backend administrative access. */
-    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-    /** Defaults to ${SUPABASE_URL}/auth/v1/.well-known/jwks.json */
-    SUPABASE_JWKS_URL: url.optional(),
-    /** Defaults to ${SUPABASE_URL}/auth/v1 */
-    SUPABASE_JWT_ISSUER: url.optional(),
+    /**
+     * Secret used to sign session tokens (HS256). Use 32+ random characters, e.g.
+     * `openssl rand -base64 48`. Changing it signs everyone out.
+     */
+    JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters').optional(),
+    /** How long a sign-in lasts before the user has to sign in again. */
+    SESSION_TTL_HOURS: z.coerce.number().int().positive().max(720).default(12),
 
     /**
      * Enables `POST /setup/admin` (one-time creation of the first admin over HTTP) when set.
@@ -33,16 +34,29 @@ const envSchema = z
      */
     SETUP_TOKEN: z.string().min(24, 'SETUP_TOKEN must be at least 24 characters').optional(),
 
-    SEED_ADMIN_EMAIL: z.email().optional(),
+    SEED_ADMIN_USERNAME: z.string().min(3).optional(),
     SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
   })
   .transform((data) => {
-    const rawSupabaseUrl = data.SUPABASE_URL.replace(/\/+$/, '');
+    let jwtSecret = data.JWT_SECRET;
+    if (!jwtSecret) {
+      if (data.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET is required in production (32+ random characters).');
+      }
+      // Never a fixed fallback: a known secret would let anyone forge tokens if a server ever
+      // runs without NODE_ENV=production. A random one is safe; restarts just sign users out.
+      jwtSecret = randomBytes(48).toString('base64');
+      if (data.NODE_ENV !== 'test') {
+        console.warn(
+          'JWT_SECRET is not set: using a random secret for this process. ' +
+            'Sessions end when the API restarts. Set JWT_SECRET in .env to keep them.',
+        );
+      }
+    }
     return {
       ...data,
+      JWT_SECRET: jwtSecret,
       DIRECT_DATABASE_URL: data.DIRECT_DATABASE_URL ?? data.DATABASE_URL,
-      SUPABASE_JWKS_URL: data.SUPABASE_JWKS_URL ?? `${rawSupabaseUrl}/auth/v1/.well-known/jwks.json`,
-      SUPABASE_JWT_ISSUER: data.SUPABASE_JWT_ISSUER ?? `${rawSupabaseUrl}/auth/v1`,
     };
   });
 

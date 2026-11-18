@@ -31,16 +31,13 @@ async function inRollback(fn: (tx: Tx) => Promise<void>): Promise<void> {
 
 async function fixture(tx: Tx) {
   const userId = randomUUID();
-  await tx.execute(
-    sql`insert into auth.users (id, email) values (${userId}, ${`${userId}@test.local`})`,
-  );
   const [org] = await tx.insert(organizations).values({ name: 'Test School' }).returning();
   if (!org) throw new Error('org');
   await tx.insert(profiles).values({
     id: userId,
     orgId: org.id,
+    username: `tester-${userId}`,
     fullName: 'Tester',
-    email: `${userId}@test.local`,
     role: 'admin',
   });
   const [student] = await tx

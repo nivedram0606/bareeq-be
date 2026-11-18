@@ -1,6 +1,6 @@
-import type { Request } from 'express';
+import type { Request, RequestHandler } from 'express';
 
-import { LOGO_MAX_BYTES, updateOrgSchema } from '@bareeq/shared';
+import { idParamSchema, LOGO_MAX_BYTES, updateOrgSchema } from '@bareeq/shared';
 
 import { AppError } from '../../lib/errors.js';
 import { handle } from '../../lib/http.js';
@@ -54,7 +54,28 @@ async function readLogoFile(req: Request): Promise<{ type: string; bytes: Uint8A
   return { type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) };
 }
 
+/**
+ * Public: serves the school logo. Images are loaded from the web app's origin, so allow
+ * cross-origin embedding; the strict CSP keeps an uploaded SVG from running scripts.
+ */
+const logo: RequestHandler = async (req, res) => {
+  const params = idParamSchema.safeParse(req.params);
+  if (!params.success) throw AppError.notFound('Logo');
+  const { data, mime } = await orgService.logo(params.data.id);
+  res
+    .set({
+      'Content-Type': mime,
+      'Cache-Control': 'public, max-age=86400',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
+    })
+    .send(data);
+};
+
 export const orgController = {
+  logo,
+
   get: handle({}, ({ user }) => orgService.get(user.orgId)),
 
   update: handle({ body: updateOrgSchema }, ({ user, body }) => orgService.update(user, body)),

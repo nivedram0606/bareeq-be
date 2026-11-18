@@ -79,9 +79,18 @@ GROUP BY s.id, s.org_id;
 
 -- --------------------------------------------------------------- privileges
 -- Belt and braces on top of RLS: the browser roles get no access to app objects.
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.set_updated_at() FROM PUBLIC;
 --> statement-breakpoint
-REVOKE EXECUTE ON FUNCTION public.set_updated_at() FROM PUBLIC, anon, authenticated;
+DO $$
+BEGIN
+  -- Supabase browser roles; absent on plain Postgres.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+    REVOKE EXECUTE ON FUNCTION public.set_updated_at() FROM anon, authenticated;
+  END IF;
+END;
+$$;
 --> statement-breakpoint
 
 -- ----------------------------------------------------------- storage bucket

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { academicYearSchema, orgSchema, paginated, profileSchema } from '@bareeq/shared';
 
-import { API, as, auditRows, errorOf, TestContext } from './helpers.js';
+import { API, app, as, auditRows, errorOf, TestContext } from './helpers.js';
 import type { TestUser } from './helpers.js';
 
 const ctx = new TestContext();
@@ -34,11 +35,11 @@ describe('role guards on admin-only writes', () => {
     ['POST /org/logo', (u) => as(u).post(`${API}/org/logo`).attach('logo', PNG_1PX, 'l.png')],
     ['GET /users', (u) => as(u).get(`${API}/users`)],
     [
-      'POST /users/invite',
+      'POST /users',
       (u) =>
         as(u)
-          .post(`${API}/users/invite`)
-          .send({ email: 'x@test.local', fullName: 'X', role: 'viewer' }),
+          .post(`${API}/users`)
+          .send({ username: 'x-user', fullName: 'X', role: 'viewer', password: 'Password-1' }),
     ],
     ['PATCH /users/:id', (u) => as(u).patch(`${API}/users/${admin.id}`).send({ role: 'viewer' })],
     [
@@ -101,14 +102,21 @@ describe('organization', () => {
     });
   });
 
-  it('admin uploads a PNG logo; the public URL is returned', async () => {
+  it('admin uploads a PNG logo; it is served publicly from Postgres', async () => {
     const res = await as(admin).post(`${API}/org/logo`).attach('logo', PNG_1PX, 'logo.png');
     expect(res.status).toBe(200);
     const org = orgSchema.parse(res.body);
-    expect(org.logoPath).toMatch(new RegExp(`^${admin.orgId}/logo-\\d+\\.png$`));
-    expect(org.logoUrl).toContain('/storage/v1/object/public/branding/');
-    const file = await fetch(org.logoUrl ?? '');
+    expect(org.logoPath).toMatch(/^logo-\d+\.png$/);
+    expect(org.logoUrl).toBe(`/orgs/${admin.orgId}/logo?v=${org.logoPath}`);
+
+    const file = await request(app).get(`${API}${org.logoUrl}`).buffer(true);
     expect(file.status).toBe(200);
+    expect(file.headers['content-type']).toBe('image/png');
+    expect(file.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(Buffer.compare(file.body as Buffer, PNG_1PX)).toBe(0);
+
+    expect((await request(app).get(`${API}/orgs/${randomUUID()}/logo`)).status).toBe(404);
+    expect((await request(app).get(`${API}/orgs/not-a-uuid/logo`)).status).toBe(404);
   });
 
   it('rejects files that are not images or are too large', async () => {
@@ -140,22 +148,6 @@ describe('users', () => {
     const body = paginated(profileSchema).parse(res.body);
     expect(body.total).toBe(3);
     expect(body.data.every((u) => u.orgId === admin.orgId)).toBe(true);
-  });
-
-  it('admin invites a user with a role; duplicate e-mail is 409', async () => {
-    const email = `invitee-${randomUUID().slice(0, 8)}@test.local`;
-    const res = await as(admin)
-      .post(`${API}/users/invite`)
-      .send({ email, fullName: 'New Teacher', role: 'staff' });
-    expect(res.status).toBe(201);
-    const profile = profileSchema.parse(res.body);
-    ctx.trackUser(profile.id);
-    expect(profile).toMatchObject({ email, role: 'staff', isActive: true, orgId: admin.orgId });
-
-    const dup = await as(admin)
-      .post(`${API}/users/invite`)
-      .send({ email, fullName: 'Again', role: 'viewer' });
-    expect(dup.status).toBe(409);
   });
 
   it('admin changes role and deactivates; deactivated user is locked out', async () => {

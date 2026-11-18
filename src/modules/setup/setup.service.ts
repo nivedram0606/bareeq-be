@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 
-import type { User } from '@supabase/supabase-js';
 import { sql } from 'drizzle-orm';
 import type { z } from 'zod';
 
@@ -8,11 +7,10 @@ import type { ProfileDto, setupAdminSchema } from '@bareeq/shared';
 
 import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
-import { writeAudit } from '../../lib/audit.js';
-import { createAuthUserWithPassword, deleteAuthUserQuietly } from '../../lib/authAdmin.js';
 import { AppError } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
-import { toProfileDto, usersRepo } from '../users/users.repo.js';
+import { usersRepo } from '../users/users.repo.js';
+import { insertUser } from '../users/users.service.js';
 
 import { ensureSchool } from './school.js';
 
@@ -36,38 +34,16 @@ export const setupService = {
     if (!env.SETUP_TOKEN) throw AppError.notFound('Route');
     if (!tokenMatches(presentedToken)) throw AppError.forbidden('Invalid setup token');
 
-    let authUser: User | undefined;
-    try {
-      return await db.transaction(async (tx) => {
-        // Serialise concurrent setup calls; re-check inside the lock.
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bareeq:setup-admin'))`);
-        if (await usersRepo.anyAdminExists(tx)) {
-          throw AppError.conflict('Setup is already complete: an admin account exists');
-        }
-
-        const { orgId } = await ensureSchool(tx);
-        authUser = await createAuthUserWithPassword(input);
-        const row = await usersRepo.insert(tx, {
-          id: authUser.id,
-          orgId,
-          email: input.email,
-          fullName: input.fullName,
-          role: 'admin',
-        });
-        await writeAudit(tx, {
-          orgId,
-          actorId: row.id,
-          entity: 'profile',
-          entityId: row.id,
-          action: 'create',
-          diff: { email: input.email, role: 'admin', via: 'setup' },
-        });
-        logger.info({ email: input.email }, 'First admin created through /setup/admin');
-        return toProfileDto(row);
-      });
-    } catch (err) {
-      if (authUser) await deleteAuthUserQuietly(authUser.id);
-      throw err;
-    }
+    return db.transaction(async (tx) => {
+      // Serialise concurrent setup calls; re-check inside the lock.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('bareeq:setup-admin'))`);
+      if (await usersRepo.anyAdminExists(tx)) {
+        throw AppError.conflict('Setup is already complete: an admin account exists');
+      }
+      const { orgId } = await ensureSchool(tx);
+      const profile = await insertUser(tx, { ...input, orgId, role: 'admin' }, { via: 'setup' });
+      logger.info({ username: input.username }, 'First admin created through /setup/admin');
+      return profile;
+    });
   },
 };
