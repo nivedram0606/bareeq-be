@@ -19,6 +19,8 @@ import {
   studentSchema,
 } from '@bareeq/shared';
 
+import { exportRepo } from '../src/modules/export/export.repo.js';
+
 import { API, as, auditRows, errorOf, TestContext } from './helpers.js';
 import type { TestUser } from './helpers.js';
 
@@ -597,5 +599,17 @@ describe('data export', () => {
     ]) {
       expect(text).toContain(`${table}.csv`);
     }
+  });
+
+  it('never exports password hashes, session versions or logo bytes', async () => {
+    const dumps = [];
+    for await (const dump of exportRepo.tables(admin.orgId)) dumps.push(dump);
+    const profilesDump = dumps.find((d) => d.name === 'profiles');
+    const orgDump = dumps.find((d) => d.name === 'organizations');
+    expect(profilesDump?.headers).toContain('username');
+    expect(profilesDump?.headers).not.toContain('password_hash');
+    expect(profilesDump?.headers).not.toContain('session_version');
+    expect(JSON.stringify(profilesDump?.rows)).not.toMatch(/\$2[aby]\$/);
+    expect(orgDump?.headers).not.toContain('logo_data');
   });
 });

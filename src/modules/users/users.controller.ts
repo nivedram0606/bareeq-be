@@ -1,8 +1,8 @@
 import {
   createUserSchema,
   idParamSchema,
-  inviteUserSchema,
   listQuerySchema,
+  resetUserPasswordSchema,
   updateUserSchema,
 } from '@bareeq/shared';
 
@@ -15,15 +15,16 @@ export const usersController = {
 
   list: handle({ query: listQuerySchema }, ({ user, query }) => usersService.list(user, query)),
 
-  invite: handle({ body: inviteUserSchema }, ({ user, body }) => usersService.invite(user, body), {
-    status: 201,
-  }),
-
   create: handle({ body: createUserSchema }, ({ user, body }) => usersService.create(user, body), {
     status: 201,
   }),
 
   update: handle({ params: idParamSchema, body: updateUserSchema }, ({ user, params, body }) =>
     usersService.update(user, params.id, body),
+  ),
+
+  resetPassword: handle(
+    { params: idParamSchema, body: resetUserPasswordSchema },
+    ({ user, params, body }) => usersService.resetPassword(user, params.id, body),
   ),
 };

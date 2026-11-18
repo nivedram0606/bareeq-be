@@ -38,16 +38,26 @@ const TABLES: [PgTable, PgColumn][] = [
   [auditLog, auditLog.orgId],
 ];
 
+/** Never exported: secrets and binary blobs. */
+const EXCLUDED_COLUMNS = new Set([
+  'profiles.password_hash',
+  'profiles.session_version',
+  'organizations.logo_data',
+]);
+
 async function dump(table: PgTable, scope: PgColumn, orgId: string): Promise<TableDump> {
-  const columns = Object.entries(getTableColumns(table));
+  const tableName = getTableName(table);
+  const columns = Object.entries(getTableColumns(table)).filter(
+    ([, c]) => !EXCLUDED_COLUMNS.has(`${tableName}.${c.name}`),
+  );
   const idColumn = columns.find(([, c]) => c.name === 'id')?.[1] ?? scope;
   const rows = (await db
-    .select()
+    .select(Object.fromEntries(columns))
     .from(table)
     .where(eq(scope, orgId))
     .orderBy(asc(idColumn))) as Record<string, unknown>[];
   return {
-    name: getTableName(table),
+    name: tableName,
     headers: columns.map(([, c]) => c.name),
     rows: rows.map((row) => Object.fromEntries(columns.map(([key, c]) => [c.name, row[key]]))),
   };

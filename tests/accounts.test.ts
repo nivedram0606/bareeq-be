@@ -26,7 +26,7 @@ afterAll(() => ctx.cleanup());
 
 describe('POST /users (create with password)', () => {
   const newUser = (role = 'admin') => ({
-    email: `created-${randomUUID().slice(0, 8)}@test.local`,
+    username: `created-${randomUUID().slice(0, 8)}`,
     fullName: 'Created Admin',
     role,
     password: `Pw-${randomUUID().slice(0, 12)}`,
@@ -37,16 +37,21 @@ describe('POST /users (create with password)', () => {
     const res = await as(admin).post(`${API}/users`).send(body);
     expect(res.status).toBe(201);
     const profile = profileSchema.parse(res.body);
-    ctx.trackUser(profile.id);
-    expect(profile).toMatchObject({ email: body.email, role: 'admin', orgId: admin.orgId });
+    expect(profile).toMatchObject({
+      username: body.username,
+      email: null,
+      role: 'admin',
+      orgId: admin.orgId,
+    });
 
-    const token = await signIn(body.email, body.password);
+    const token = await signIn(body.username, body.password);
     const me = meSchema.parse((await as({ token }).get(`${API}/me`)).body);
     expect(me.profile).toMatchObject({ id: profile.id, role: 'admin' });
 
     const audit = await auditRows(profile.id);
     expect(audit[0]).toMatchObject({ action: 'create', actorId: admin.id });
-    expect(audit[0]?.diff).toMatchObject({ via: 'password' });
+    expect(audit[0]?.diff).toMatchObject({ via: 'admin' });
+    expect(JSON.stringify(audit[0]?.diff)).not.toContain(body.password);
   });
 
   it('staff and viewer cannot create users', async () => {
@@ -55,18 +60,32 @@ describe('POST /users (create with password)', () => {
     }
   });
 
-  it('rejects short passwords and duplicate e-mails', async () => {
+  it('stores an optional e-mail and never returns the password hash', async () => {
+    const body = { ...newUser('viewer'), email: 'Someone@School.om' };
+    const res = await as(admin).post(`${API}/users`).send(body);
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ email: 'someone@school.om' });
+    expect(JSON.stringify(res.body)).not.toMatch(/password|\$2[aby]\$/i);
+  });
+
+  it('rejects short passwords, invalid usernames and duplicate usernames', async () => {
     const short = await as(admin)
       .post(`${API}/users`)
       .send({ ...newUser(), password: 'short' });
     expect(short.status).toBe(400);
     expect(errorOf(short).details).toEqual({ password: 'validation.password_short' });
 
+    const bad = await as(admin)
+      .post(`${API}/users`)
+      .send({ ...newUser(), username: 'no spaces allowed' });
+    expect(bad.status).toBe(400);
+    expect(errorOf(bad).details).toEqual({ username: 'validation.invalid_username' });
+
     const dup = await as(admin)
       .post(`${API}/users`)
-      .send({ ...newUser(), email: staff.email });
+      .send({ ...newUser(), username: staff.username.toUpperCase() });
     expect(dup.status).toBe(409);
-    expect(errorOf(dup).details).toEqual({ email: 'validation.email_taken' });
+    expect(errorOf(dup).details).toEqual({ username: 'validation.username_taken' });
   });
 });
 
@@ -74,7 +93,7 @@ describe('POST /setup/admin (first-admin bootstrap)', () => {
   const original = env.SETUP_TOKEN;
   const token = `test-setup-token-${randomUUID()}`;
   const body = {
-    email: `setup-${randomUUID().slice(0, 8)}@test.local`,
+    username: `setup-${randomUUID().slice(0, 8)}`,
     fullName: 'Setup Admin',
     password: 'Setup-password-123',
   };
@@ -108,7 +127,7 @@ describe('POST /setup/admin (first-admin bootstrap)', () => {
       .set('x-setup-token', token)
       .send(body);
     expect(res.status).toBe(409);
-    await expect(signIn(body.email, body.password)).rejects.toThrow();
+    await expect(signIn(body.username, body.password)).rejects.toThrow();
   });
 
   it('validates the body', async () => {
@@ -116,12 +135,12 @@ describe('POST /setup/admin (first-admin bootstrap)', () => {
     const res = await request(app)
       .post(`${API}/setup/admin`)
       .set('x-setup-token', token)
-      .send({ email: 'nope', fullName: '', password: '1' });
+      .send({ username: 'x', fullName: '', password: '1' });
     expect(res.status).toBe(400);
     expect(Object.keys(errorOf(res).details ?? {}).sort()).toEqual([
-      'email',
       'fullName',
       'password',
+      'username',
     ]);
   });
 });

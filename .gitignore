@@ -11,9 +11,6 @@ dist/
 *.local
 test-credentials.local.md
 
-# Supabase temp & local CLI state
-supabase/.temp/
-supabase/.branches/
 
 # Logs
 logs/

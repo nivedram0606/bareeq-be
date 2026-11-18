@@ -6,8 +6,6 @@ import type { BrandingDto, Locale, OrgDto, updateOrgSchema } from '@bareeq/share
 import { db } from '../../db/client.js';
 import { diffOf, writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { logger } from '../../lib/logger.js';
-import { BRANDING_BUCKET, publicStorageUrl, supabaseAdmin } from '../../lib/supabase.js';
 import type { AuthUser } from '../../lib/types.js';
 
 import { orgRepo } from './org.repo.js';
@@ -28,7 +26,9 @@ export const toOrgDto = (r: OrgRow): OrgDto => ({
   defaultLocale: r.defaultLocale as Locale,
   brandColor: r.brandColor,
   logoPath: r.logoPath,
-  logoUrl: r.logoPath ? publicStorageUrl(BRANDING_BUCKET, r.logoPath) : null,
+  // Relative to the API base URL; the file name changes per upload, so it doubles as a cache key.
+  logoUrl:
+    r.logoPath && r.logoMime ? `/orgs/${r.id}/logo?v=${encodeURIComponent(r.logoPath)}` : null,
 });
 
 /** Checks the file's leading bytes match its declared type (don't trust the client MIME). */
@@ -52,6 +52,13 @@ export const orgService = {
     if (!org) throw AppError.notFound('Organization');
     const { name, nameAr, defaultLocale, brandColor, logoUrl } = toOrgDto(org);
     return { name, nameAr, defaultLocale, brandColor, logoUrl };
+  },
+
+  /** Public logo bytes for `GET /orgs/:id/logo`. */
+  async logo(orgId: string): Promise<{ data: Buffer; mime: string }> {
+    const logo = await orgRepo.logo(orgId);
+    if (!logo) throw AppError.notFound('Logo');
+    return logo;
   },
 
   async get(orgId: string): Promise<OrgDto> {
@@ -97,14 +104,13 @@ export const orgService = {
     const before = await orgRepo.findById(user.orgId);
     if (!before) throw AppError.notFound('Organization');
 
-    const path = `${user.orgId}/logo-${Date.now()}.${EXTENSIONS[type]}`;
-    const { error } = await supabaseAdmin.storage
-      .from(BRANDING_BUCKET)
-      .upload(path, file.bytes, { contentType: type, cacheControl: '3600', upsert: false });
-    if (error) throw new Error(`Logo upload failed: ${error.message}`, { cause: error });
-
+    const path = `logo-${Date.now()}.${EXTENSIONS[type]}`;
     const after = await db.transaction(async (tx) => {
-      const row = await orgRepo.update(tx, user.orgId, { logoPath: path });
+      const row = await orgRepo.update(tx, user.orgId, {
+        logoPath: path,
+        logoMime: type,
+        logoData: Buffer.from(file.bytes),
+      });
       await writeAudit(tx, {
         orgId: user.orgId,
         actorId: user.id,
@@ -116,13 +122,6 @@ export const orgService = {
       return row;
     });
     if (!after) throw AppError.notFound('Organization');
-
-    if (before.logoPath) {
-      const { error: removeError } = await supabaseAdmin.storage
-        .from(BRANDING_BUCKET)
-        .remove([before.logoPath]);
-      if (removeError) logger.warn({ err: removeError }, 'Could not remove previous logo');
-    }
     return toOrgDto(after);
   },
 };

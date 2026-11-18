@@ -2,13 +2,14 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   date,
   foreignKey,
   index,
+  integer,
   jsonb,
   numeric,
   pgEnum,
-  pgSchema,
   pgTable,
   pgView,
   text,
@@ -41,10 +42,9 @@ const orgId = () =>
     .references(() => organizations.id);
 const inList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(', '));
 
-/* Supabase-managed auth.users (referenced only; never migrated by Drizzle). */
-const authSchema = pgSchema('auth');
-const authUsers = authSchema.table('users', {
-  id: uuid('id').primaryKey(),
+/** Raw bytes (Postgres `bytea`), read and written as Node Buffers. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
 });
 
 /* ----------------------------------------------------------------- tables */
@@ -58,7 +58,10 @@ export const organizations = pgTable(
     currency: text('currency').notNull().default('OMR'),
     defaultLocale: text('default_locale').notNull().default('en'),
     brandColor: text('brand_color').notNull().default('#0f766e'),
+    /** Logo file name (`logo-<timestamp>.<ext>`); changes on every upload, busting caches. */
     logoPath: text('logo_path'),
+    logoMime: text('logo_mime'),
+    logoData: bytea('logo_data'),
     ...timestamps(),
   },
   (t) => [
@@ -70,17 +73,24 @@ export const organizations = pgTable(
 export const profiles = pgTable(
   'profiles',
   {
-    id: uuid('id')
-      .primaryKey()
-      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    id: id(),
     orgId: orgId(),
+    /** Login name, stored lower-case. */
+    username: text('username').notNull(),
+    /** bcrypt hash; null means the account cannot sign in until an admin sets a password. */
+    passwordHash: text('password_hash'),
+    /** Bumped on password change/reset to revoke existing session tokens. */
+    sessionVersion: integer('session_version').notNull().default(0),
     fullName: text('full_name').notNull(),
-    email: text('email').notNull(),
+    email: text('email'),
     role: userRole('role').notNull().default('viewer'),
     isActive: boolean('is_active').notNull().default(true),
     ...timestamps(),
   },
-  (t) => [index('profiles_org_idx').on(t.orgId)],
+  (t) => [
+    index('profiles_org_idx').on(t.orgId),
+    uniqueIndex('profiles_username_key').on(sql`lower(${t.username})`),
+  ],
 ).enableRLS();
 
 export const academicYears = pgTable(

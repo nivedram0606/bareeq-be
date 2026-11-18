@@ -4,17 +4,17 @@
  *   pnpm db:seed           org, current academic year, 3 classes, first admin
  *   pnpm db:seed --demo    ...plus demo students, guardians, fees and payments
  *
- * The first admin is created through the Supabase Admin API using
- * SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD. (Without shell access, `POST /api/v1/setup/admin`
+ * The first admin is created with SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD (skipped if that
+ * username already exists). (Without shell access, `POST /api/v1/setup/admin`
  * does the same over HTTP — see docs/prod-deployment.md.)
  */
-import type { User } from '@supabase/supabase-js';
 import { eq, sql } from 'drizzle-orm';
 
 import { env } from '../config/env.js';
-import { createAuthUserWithPassword, findAuthUserByEmail } from '../lib/authAdmin.js';
 import { logger } from '../lib/logger.js';
 import { currentAcademicYear, ensureSchool } from '../modules/setup/school.js';
+import { usersRepo } from '../modules/users/users.repo.js';
+import { insertUser } from '../modules/users/users.service.js';
 
 import { closeDb, db } from './client.js';
 import type { Tx } from './client.js';
@@ -22,15 +22,29 @@ import { feeItems, guardians, payments, profiles, students } from './schema.js';
 
 const ADMIN_NAME = 'School Administrator';
 
-async function ensureAdminUser(email: string, password: string): Promise<User> {
-  const existing = await findAuthUserByEmail(email);
+/** Returns the admin's profile id, creating the account (or re-enabling it as admin) if needed. */
+async function ensureAdminUser(
+  tx: Tx,
+  orgId: string,
+  username: string,
+  password: string,
+): Promise<string> {
+  const existing = await usersRepo.findByUsername(username, tx);
   if (existing) {
-    logger.info({ email }, 'Admin auth user already exists');
-    return existing;
+    await tx
+      .update(profiles)
+      .set({ role: 'admin', isActive: true })
+      .where(eq(profiles.id, existing.id));
+    logger.info({ username }, 'Admin user already exists');
+    return existing.id;
   }
-  const user = await createAuthUserWithPassword({ email, password, fullName: ADMIN_NAME });
-  logger.info({ email }, 'Admin auth user created');
-  return user;
+  const profile = await insertUser(
+    tx,
+    { orgId, username, password, fullName: ADMIN_NAME, role: 'admin' },
+    { via: 'seed' },
+  );
+  logger.info({ username }, 'Admin user created');
+  return profile.id;
 }
 
 const DEMO_STUDENTS = [
@@ -133,23 +147,18 @@ async function seedDemo(
 
 async function main(): Promise<void> {
   const demo = process.argv.includes('--demo');
-  const email = env.SEED_ADMIN_EMAIL;
+  const username = env.SEED_ADMIN_USERNAME?.trim().toLowerCase();
   const password = env.SEED_ADMIN_PASSWORD;
-  if (!email || !password) {
-    throw new Error('SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must be set to seed the first admin');
+  if (!username || !password) {
+    throw new Error(
+      'SEED_ADMIN_USERNAME and SEED_ADMIN_PASSWORD must be set to seed the first admin',
+    );
   }
-
-  const adminUser = await ensureAdminUser(email, password);
 
   await db.transaction(async (tx) => {
     const { orgId, academicYearId, classIds } = await ensureSchool(tx);
-
-    await tx
-      .insert(profiles)
-      .values({ id: adminUser.id, orgId, email, fullName: ADMIN_NAME, role: 'admin' })
-      .onConflictDoUpdate({ target: profiles.id, set: { role: 'admin', isActive: true } });
-
-    if (demo) await seedDemo(tx, orgId, academicYearId, classIds, adminUser.id);
+    const adminId = await ensureAdminUser(tx, orgId, username, password);
+    if (demo) await seedDemo(tx, orgId, academicYearId, classIds, adminId);
   });
 
   logger.info({ demo }, 'Seed complete');

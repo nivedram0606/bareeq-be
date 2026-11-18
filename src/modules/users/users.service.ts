@@ -1,71 +1,73 @@
-import type { User } from '@supabase/supabase-js';
 import type { z } from 'zod';
 
 import type {
   createUserSchema,
-  inviteUserSchema,
   ListQuery,
   MeDto,
   Paginated,
   ProfileDto,
+  resetUserPasswordSchema,
   Role,
   updateUserSchema,
 } from '@bareeq/shared';
 
-import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
+import type { Executor } from '../../db/client.js';
 import { diffOf, writeAudit } from '../../lib/audit.js';
-import {
-  createAuthUserWithPassword,
-  deleteAuthUserQuietly,
-  inviteAuthUser,
-} from '../../lib/authAdmin.js';
-import { AppError } from '../../lib/errors.js';
+import { AppError, findPgError } from '../../lib/errors.js';
 import { paginate } from '../../lib/pagination.js';
+import { hashPassword } from '../../lib/password.js';
 import type { AuthUser } from '../../lib/types.js';
 import { orgService } from '../org/org.service.js';
 
 import { toProfileDto, usersRepo } from './users.repo.js';
 
-/** Where invite e-mails send the user to set their password: the web app's reset page. */
-const inviteRedirect = (): string => {
-  const webOrigin = env.CORS_ORIGIN.split(',')[0]?.trim() ?? 'http://localhost:5173';
-  return `${webOrigin.replace(/\/$/, '')}/reset-password`;
-};
+const usernameTaken = () =>
+  AppError.conflict('A user with this username already exists', {
+    username: 'validation.username_taken',
+  });
 
 /**
- * Saves the profile for a just-created auth user (plus an audit row). If that fails the auth
- * user is deleted again, so Auth and `profiles` never drift apart.
+ * Inserts a profile with a hashed password and an audit row, inside `ex`. Shared by admin user
+ * creation, the first-admin setup endpoint and the seed script.
  */
-async function attachProfile(
-  actor: AuthUser,
-  authUser: User,
-  input: { email: string; fullName: string; role: Role },
-  how: 'invite' | 'password',
+export async function insertUser(
+  ex: Executor,
+  input: {
+    orgId: string;
+    username: string;
+    password: string;
+    fullName: string;
+    email?: string | null;
+    role: Role;
+  },
+  audit: { actorId?: string; via: 'admin' | 'setup' | 'seed' },
 ): Promise<ProfileDto> {
+  if (await usersRepo.findByUsername(input.username, ex)) throw usernameTaken();
+  let row;
   try {
-    return await db.transaction(async (tx) => {
-      const row = await usersRepo.insert(tx, {
-        id: authUser.id,
-        orgId: actor.orgId,
-        email: input.email,
-        fullName: input.fullName,
-        role: input.role,
-      });
-      await writeAudit(tx, {
-        orgId: actor.orgId,
-        actorId: actor.id,
-        entity: 'profile',
-        entityId: row.id,
-        action: 'create',
-        diff: { email: input.email, role: input.role, via: how },
-      });
-      return toProfileDto(row);
+    row = await usersRepo.insert(ex, {
+      orgId: input.orgId,
+      username: input.username,
+      passwordHash: await hashPassword(input.password),
+      fullName: input.fullName,
+      email: input.email ?? null,
+      role: input.role,
     });
   } catch (err) {
-    await deleteAuthUserQuietly(authUser.id);
+    // Lost a race with a concurrent insert of the same username.
+    if (findPgError(err)?.constraint_name === 'profiles_username_key') throw usernameTaken();
     throw err;
   }
+  await writeAudit(ex, {
+    orgId: input.orgId,
+    actorId: audit.actorId ?? row.id,
+    entity: 'profile',
+    entityId: row.id,
+    action: 'create',
+    diff: { username: input.username, role: input.role, via: audit.via },
+  });
+  return toProfileDto(row);
 }
 
 export const usersService = {
@@ -83,20 +85,33 @@ export const usersService = {
     return paginate(rows.map(toProfileDto), total, q);
   },
 
-  /** Invite by e-mail: the user sets their own password from the link (needs SMTP). */
-  async invite(user: AuthUser, input: z.output<typeof inviteUserSchema>): Promise<ProfileDto> {
-    const authUser = await inviteAuthUser({
-      email: input.email,
-      fullName: input.fullName,
-      redirectTo: inviteRedirect(),
-    });
-    return attachProfile(user, authUser, input, 'invite');
+  /** Creates an account with a username and initial password. Any role, including admin. */
+  async create(user: AuthUser, input: z.output<typeof createUserSchema>): Promise<ProfileDto> {
+    return db.transaction((tx) =>
+      insertUser(tx, { ...input, orgId: user.orgId }, { actorId: user.id, via: 'admin' }),
+    );
   },
 
-  /** Create directly with an initial password (no e-mail). Any role, including admin. */
-  async create(user: AuthUser, input: z.output<typeof createUserSchema>): Promise<ProfileDto> {
-    const authUser = await createAuthUserWithPassword(input);
-    return attachProfile(user, authUser, input, 'password');
+  /** Admin sets a new password for a user in their org; the user's sessions are signed out. */
+  async resetPassword(
+    user: AuthUser,
+    id: string,
+    input: z.output<typeof resetUserPasswordSchema>,
+  ): Promise<void> {
+    const passwordHash = await hashPassword(input.password);
+    await db.transaction(async (tx) => {
+      const target = await usersRepo.findInOrg(user.orgId, id, tx);
+      if (!target) throw AppError.notFound('User');
+      await usersRepo.setPassword(tx, id, passwordHash);
+      await writeAudit(tx, {
+        orgId: user.orgId,
+        actorId: user.id,
+        entity: 'profile',
+        entityId: id,
+        action: 'update',
+        diff: { password: 'reset' },
+      });
+    });
   },
 
   async update(

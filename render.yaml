@@ -6,7 +6,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    region: frankfurt # keep close to the Supabase project region
+    region: frankfurt # keep close to the database region
     plan: starter # "free" works for trials but sleeps when idle
     healthCheckPath: /api/v1/health
     autoDeploy: true
@@ -18,17 +18,11 @@ services:
       - key: CORS_ORIGIN
         sync: false # https://<your-site>.netlify.app
       - key: DATABASE_URL
-        sync: false # Supabase transaction pooler, port 6543
+        sync: false # PostgreSQL connection string
       - key: DIRECT_DATABASE_URL
-        sync: false # Supabase session pooler, port 5432
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_JWKS_URL
-        sync: false # ${SUPABASE_URL}/auth/v1/.well-known/jwks.json
-      - key: SUPABASE_JWT_ISSUER
-        sync: false # ${SUPABASE_URL}/auth/v1
+        sync: false # optional: direct connection for migrations when DATABASE_URL is a pooler
+      - key: JWT_SECRET
+        sync: false # 32+ random characters (openssl rand -base64 48)
       - key: RATE_LIMIT_PER_MINUTE
         value: '1200'
       - key: SETUP_TOKEN
