@@ -1,0 +1,35 @@
+# Render Blueprint: API as a Docker web service. Values marked `sync: false`
+# are entered in the Render dashboard when the Blueprint is created (never commit secrets).
+services:
+  - type: web
+    name: bareeq-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt # keep close to the Supabase project region
+    plan: starter # "free" works for trials but sleeps when idle
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    # Paid instances only; on the free plan run migrations from your machine instead.
+    preDeployCommand: node dist/db/migrate.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        sync: false # https://<your-site>.netlify.app
+      - key: DATABASE_URL
+        sync: false # Supabase transaction pooler, port 6543
+      - key: DIRECT_DATABASE_URL
+        sync: false # Supabase session pooler, port 5432
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        sync: false # ${SUPABASE_URL}/auth/v1/.well-known/jwks.json
+      - key: SUPABASE_JWT_ISSUER
+        sync: false # ${SUPABASE_URL}/auth/v1
+      - key: RATE_LIMIT_PER_MINUTE
+        value: '1200'
+      - key: SETUP_TOKEN
+        sync: false # optional, 24+ chars; remove after creating the first admin

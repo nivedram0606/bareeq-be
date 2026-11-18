@@ -1,0 +1,50 @@
+{
+  "name": "bareeq-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --conditions=source --env-file-if-exists=.env --import tsx --watch-path=./src src/server.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/resolve-aliases.js",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "node --conditions=source --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --conditions=source --env-file-if-exists=.env --import tsx src/db/migrate.ts",
+    "db:seed": "node --conditions=source --env-file-if-exists=.env --import tsx src/db/seed.ts",
+    "serve": "node --conditions=source --env-file-if-exists=.env --import tsx src/server.ts",
+    "start:migrate": "node --env-file-if-exists=.env dist/db/migrate.js",
+    "start:seed": "node --env-file-if-exists=.env dist/db/seed.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "archiver": "^8.0.0",
+    "cors": "^2.8.6",
+    "csv-stringify": "^6.9.0",
+    "drizzle-orm": "^0.45.4",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.4",
+    "helmet": "^8.3.0",
+    "jose": "^6.2.17",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "postgres": "^4.1.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "@types/supertest": "^7.2.1",
+    "drizzle-kit": "^0.31.11",
+    "supertest": "^7.3.2",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "files": [
+    "dist",
+    "src/db/migrations"
+  ]
+}
