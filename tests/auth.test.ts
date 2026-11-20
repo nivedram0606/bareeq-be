@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
 import { SignJWT } from 'jose';
 import request from 'supertest';
@@ -61,6 +62,23 @@ describe('POST /auth/login', () => {
     const user = await ctx.createUser(admin.orgId, 'viewer');
     await db.update(profiles).set({ passwordHash: null }).where(eq(profiles.id, user.id));
     expect((await login(user.username, user.password)).status).toBe(401);
+  });
+
+  it('upgrades an older-cost hash on sign-in without signing other sessions out', async () => {
+    const user = await ctx.createUser(admin.orgId, 'viewer');
+    const oldHash = bcrypt.hashSync(user.password, 12);
+    await db.update(profiles).set({ passwordHash: oldHash }).where(eq(profiles.id, user.id));
+
+    expect((await login(user.username, user.password)).status).toBe(200);
+    let hash = oldHash;
+    for (let i = 0; i < 50 && bcrypt.getRounds(hash) === 12; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const [row] = await db.select().from(profiles).where(eq(profiles.id, user.id));
+      hash = row?.passwordHash ?? hash;
+    }
+    expect(bcrypt.getRounds(hash)).toBe(10);
+    expect((await as(user).get(`${API}/me`)).status).toBe(200);
+    expect((await login(user.username, user.password)).status).toBe(200);
   });
 
   it('400 when fields are missing', async () => {

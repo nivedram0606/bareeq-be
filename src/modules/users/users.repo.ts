@@ -95,6 +95,11 @@ export const usersRepo = {
     return row;
   },
 
+  /** Re-saves the same password with a new hash (e.g. new bcrypt cost) without revoking sessions. */
+  async replaceHash(id: string, passwordHash: string): Promise<void> {
+    await db.update(profiles).set({ passwordHash }).where(eq(profiles.id, id));
+  },
+
   /** Stores a new password hash and revokes every existing session token of the user. */
   async setPassword(ex: Executor, id: string, passwordHash: string): Promise<boolean> {
     const rows = await ex

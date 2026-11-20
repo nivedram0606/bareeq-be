@@ -5,7 +5,8 @@ import type { changePasswordSchema, LoginResponse, loginSchema } from '@bareeq/s
 import { db } from '../../db/client.js';
 import { writeAudit } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { logger } from '../../lib/logger.js';
+import { hashPassword, needsRehash, verifyPassword } from '../../lib/password.js';
 import { signSessionToken } from '../../lib/tokens.js';
 import type { AuthUser } from '../../lib/types.js';
 import { usersRepo } from '../users/users.repo.js';
@@ -22,6 +23,13 @@ export const authService = {
     const ok = await verifyPassword(input.password, profile?.passwordHash);
     if (!profile || !ok) throw invalidCredentials();
     if (!profile.isActive) throw AppError.forbidden('This account has been deactivated');
+
+    // Hashes made with an older cost are upgraded in the background; sign-in doesn't wait.
+    if (profile.passwordHash && needsRehash(profile.passwordHash)) {
+      void hashPassword(input.password)
+        .then((hash) => usersRepo.replaceHash(profile.id, hash))
+        .catch((err: unknown) => logger.warn({ err, id: profile.id }, 'Password rehash failed'));
+    }
 
     const { token, expiresAt } = await signSessionToken({
       sub: profile.id,
