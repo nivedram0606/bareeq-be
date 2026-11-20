@@ -19,7 +19,14 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { AUDIT_ACTIONS, GENDERS, PAY_METHODS, ROLES, STUDENT_STATUS } from '@bareeq/shared';
+import {
+  AUDIT_ACTIONS,
+  DESIGNATIONS,
+  GENDERS,
+  PAY_METHODS,
+  ROLES,
+  STUDENT_STATUS,
+} from '@bareeq/shared';
 import type { BalanceStatus } from '@bareeq/shared';
 
 /* ------------------------------------------------------------------ enums */
@@ -184,13 +191,16 @@ export const staff = pgTable(
     id: id(),
     orgId: orgId(),
     fullName: text('full_name').notNull(),
-    designation: text('designation').notNull(),
+    designation: text('designation', { enum: DESIGNATIONS }).notNull(),
     phone: text('phone'),
     email: text('email'),
     status: recordStatus('status').notNull().default('active'),
     ...timestamps(),
   },
-  (t) => [index('staff_org_idx').on(t.orgId)],
+  (t) => [
+    index('staff_org_idx').on(t.orgId),
+    check('staff_designation_check', sql`${t.designation} in (${inList(DESIGNATIONS)})`),
+  ],
 ).enableRLS();
 
 export const feeItems = pgTable(

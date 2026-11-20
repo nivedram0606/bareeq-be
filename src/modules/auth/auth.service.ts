@@ -17,6 +17,8 @@ export const authService = {
   /**
    * Checks username and password and issues a session token. Unknown users, wrong passwords
    * and accounts without a password all get the same 401; deactivated accounts get 403.
+   * One active session per user: a successful sign-in signs out every other device (BUG-003).
+   * Failed attempts change nothing, so guessing a password cannot log the real user out.
    */
   async login(input: z.output<typeof loginSchema>): Promise<LoginResponse> {
     const profile = await usersRepo.findByUsername(input.username);
@@ -33,7 +35,7 @@ export const authService = {
 
     const { token, expiresAt } = await signSessionToken({
       sub: profile.id,
-      sv: profile.sessionVersion,
+      sv: await usersRepo.rotateSession(profile.id),
     });
     return { token, expiresAt: expiresAt.toISOString() };
   },

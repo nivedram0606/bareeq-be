@@ -33,12 +33,13 @@ const login = (username: string, password: string) =>
 
 describe('POST /auth/login', () => {
   it('returns a token for the right username and password (username is case-insensitive)', async () => {
-    const res = await login(admin.username.toUpperCase(), admin.password);
+    const user = await ctx.createUser(admin.orgId, 'admin');
+    const res = await login(user.username.toUpperCase(), user.password);
     expect(res.status).toBe(200);
     const body = loginResponseSchema.parse(res.body);
     expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
     const me = meSchema.parse((await as(body).get(`${API}/me`)).body);
-    expect(me.profile).toMatchObject({ id: admin.id, username: admin.username, role: 'admin' });
+    expect(me.profile).toMatchObject({ id: user.id, username: user.username, role: 'admin' });
   });
 
   it('gives the same 401 for a wrong password and an unknown username', async () => {
@@ -64,7 +65,7 @@ describe('POST /auth/login', () => {
     expect((await login(user.username, user.password)).status).toBe(401);
   });
 
-  it('upgrades an older-cost hash on sign-in without signing other sessions out', async () => {
+  it('upgrades an older-cost hash on sign-in', async () => {
     const user = await ctx.createUser(admin.orgId, 'viewer');
     const oldHash = bcrypt.hashSync(user.password, 12);
     await db.update(profiles).set({ passwordHash: oldHash }).where(eq(profiles.id, user.id));
@@ -77,8 +78,25 @@ describe('POST /auth/login', () => {
       hash = row?.passwordHash ?? hash;
     }
     expect(bcrypt.getRounds(hash)).toBe(10);
+    const again = await login(user.username, user.password);
+    expect(again.status).toBe(200);
+    expect((await as(loginResponseSchema.parse(again.body)).get(`${API}/me`)).status).toBe(200);
+  });
+
+  it('allows one active session: signing in again signs the other device out', async () => {
+    const user = await ctx.createUser(admin.orgId, 'staff');
+    const second = loginResponseSchema.parse((await login(user.username, user.password)).body);
+
+    const old = await as(user).get(`${API}/me`);
+    expect(old.status).toBe(401);
+    expect(errorOf(old).message).toMatch(/signed in again/);
+    expect((await as(second).get(`${API}/me`)).status).toBe(200);
+  });
+
+  it('a failed sign-in does not sign the real user out', async () => {
+    const user = await ctx.createUser(admin.orgId, 'staff');
+    expect((await login(user.username, 'wrong-password')).status).toBe(401);
     expect((await as(user).get(`${API}/me`)).status).toBe(200);
-    expect((await login(user.username, user.password)).status).toBe(200);
   });
 
   it('400 when fields are missing', async () => {

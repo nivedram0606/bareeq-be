@@ -95,6 +95,20 @@ export const usersRepo = {
     return row;
   },
 
+  /**
+   * Starts a new session for the user: bumps `session_version`, which revokes every token issued
+   * before, and returns the new version to put in the new token.
+   */
+  async rotateSession(id: string): Promise<number> {
+    const [row] = await db
+      .update(profiles)
+      .set({ sessionVersion: sql`${profiles.sessionVersion} + 1` })
+      .where(eq(profiles.id, id))
+      .returning({ sessionVersion: profiles.sessionVersion });
+    if (!row) throw new Error('Profile disappeared during sign-in');
+    return row.sessionVersion;
+  },
+
   /** Re-saves the same password with a new hash (e.g. new bcrypt cost) without revoking sessions. */
   async replaceHash(id: string, passwordHash: string): Promise<void> {
     await db.update(profiles).set({ passwordHash }).where(eq(profiles.id, id));

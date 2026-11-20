@@ -380,20 +380,27 @@ describe('staff directory', () => {
   it('admin creates and edits; everyone reads', async () => {
     const res = await as(admin)
       .post(`${API}/staff`)
-      .send({ fullName: 'Huda Al-Saadi', designation: 'Teacher', phone: '+968 9111 2222' });
+      .send({ fullName: 'Huda Al-Saadi', designation: 'teacher', phone: '+968 9111 2222' });
     expect(res.status).toBe(201);
     const member = staffSchema.parse(res.body);
     expect(member.status).toBe('active');
 
     const edit = await as(admin)
       .patch(`${API}/staff/${member.id}`)
-      .send({ designation: 'Head Teacher', status: 'inactive' });
-    expect(edit.body).toMatchObject({ designation: 'Head Teacher', status: 'inactive' });
+      .send({ designation: 'principal', status: 'inactive' });
+    expect(edit.body).toMatchObject({ designation: 'principal', status: 'inactive' });
 
     const list = paginated(staffSchema).parse(
       (await as(viewer).get(`${API}/staff?search=huda`)).body,
     );
     expect(list.data.map((s) => s.id)).toEqual([member.id]);
+  });
+  it('only accepts designations from the fixed list', async () => {
+    const res = await as(admin)
+      .post(`${API}/staff`)
+      .send({ fullName: 'X', designation: 'Head Chef' });
+    expect(res.status).toBe(400);
+    expect(errorOf(res).details).toEqual({ designation: 'validation.invalid_choice' });
   });
 });
 
@@ -410,7 +417,7 @@ describe('org isolation', () => {
       ).body,
     );
     const member = staffSchema.parse(
-      (await as(admin).post(`${API}/staff`).send({ fullName: 'S', designation: 'D' })).body,
+      (await as(admin).post(`${API}/staff`).send({ fullName: 'S', designation: 'other' })).body,
     );
 
     const other = as(otherAdmin);

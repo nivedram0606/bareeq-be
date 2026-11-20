@@ -140,7 +140,7 @@ export const ROUTES: RouteDoc[] = [
     summary: 'Sign in with username and password',
     access: 'public',
     description:
-      'Returns a session token; send it as `Authorization: Bearer <token>`. Wrong usernames and wrong passwords both give 401. Limited to 10 failed attempts per IP per 15 minutes.',
+      'Returns a session token; send it as `Authorization: Bearer <token>`. Wrong usernames and wrong passwords both give 401. Limited to 10 failed attempts per IP per 15 minutes. One active session per user: signing in here signs that user out everywhere else (including the web app).',
     body: loginSchema,
     response: loginResponseSchema,
     errors: { 403: 'Account deactivated', 429: 'Too many failed attempts' },

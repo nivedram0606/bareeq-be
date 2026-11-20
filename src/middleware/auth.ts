@@ -28,8 +28,12 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
   }
 
   const profile = await usersRepo.findById(claims.sub);
-  if (!profile || profile.sessionVersion !== claims.sv) {
-    throw AppError.unauthenticated('Session is no longer valid');
+  if (!profile) throw AppError.unauthenticated('Session is no longer valid');
+  if (profile.sessionVersion !== claims.sv) {
+    // Signed in elsewhere since, or the password was changed/reset.
+    throw AppError.unauthenticated(
+      'Signed out because this account signed in again or its password changed',
+    );
   }
   if (!profile.isActive) throw AppError.forbidden('This account has been deactivated');
 
