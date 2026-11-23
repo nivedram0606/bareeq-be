@@ -16,6 +16,7 @@ import { AppError, findPgError } from '../../lib/errors.js';
 import { paginate } from '../../lib/pagination.js';
 import type { AuthUser } from '../../lib/types.js';
 import { classesRepo } from '../classes/classes.repo.js';
+import { guardiansRepo } from '../guardians/guardians.repo.js';
 
 import { studentsRepo } from './students.repo.js';
 
@@ -39,6 +40,22 @@ async function withAdmissionNoCheck<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Inactive students cannot be put into a class or moved to another one (BUG-010).
+ * Deactivating a student keeps their current class, so history and reports stay intact.
+ */
+function assertActiveForClass(
+  status: string,
+  classId: string | null | undefined,
+  previousClassId: string | null,
+): void {
+  if (status === 'inactive' && classId && classId !== previousClassId) {
+    throw AppError.validation('Inactive students cannot be assigned to a class', {
+      classId: V.inactiveStudentClass,
+    });
+  }
+}
+
 export const studentsService = {
   async list(user: AuthUser, q: StudentListQuery): Promise<Paginated<StudentDto>> {
     const { rows, total } = await studentsRepo.list(user.orgId, q);
@@ -52,10 +69,19 @@ export const studentsService = {
   },
 
   async create(user: AuthUser, input: z.output<typeof createStudentSchema>): Promise<StudentDto> {
+    const { primaryContact, ...student } = input;
+    assertActiveForClass(student.status, student.classId, null);
     return withAdmissionNoCheck(() =>
       db.transaction(async (tx) => {
-        await assertClassInOrg(tx, user.orgId, input.classId);
-        const id = await studentsRepo.insert(tx, { ...input, orgId: user.orgId });
+        await assertClassInOrg(tx, user.orgId, student.classId);
+        const id = await studentsRepo.insert(tx, { ...student, orgId: user.orgId });
+        // Every student starts with a primary contact (BUG-007).
+        await guardiansRepo.insert(tx, {
+          ...primaryContact,
+          isPrimary: true,
+          studentId: id,
+          orgId: user.orgId,
+        });
         await writeAudit(tx, {
           orgId: user.orgId,
           actorId: user.id,
@@ -80,6 +106,11 @@ export const studentsService = {
       db.transaction(async (tx) => {
         const before = await studentsRepo.findRow(user.orgId, id, tx);
         if (!before) throw AppError.notFound('Student');
+        assertActiveForClass(
+          input.status ?? before.status,
+          input.classId === undefined ? before.classId : input.classId,
+          before.classId,
+        );
         await assertClassInOrg(tx, user.orgId, input.classId);
         await studentsRepo.update(tx, user.orgId, id, input);
 

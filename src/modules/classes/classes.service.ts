@@ -15,12 +15,25 @@ import { AppError } from '../../lib/errors.js';
 import { paginate } from '../../lib/pagination.js';
 import type { AuthUser } from '../../lib/types.js';
 import { academicYearsRepo } from '../academicYears/academicYears.repo.js';
+import { staffRepo } from '../staff/staff.repo.js';
 
 import { classesRepo } from './classes.repo.js';
 
 async function assertYearInOrg(ex: Executor, orgId: string, yearId: string): Promise<void> {
   if (!(await academicYearsRepo.findInOrg(orgId, yearId, ex))) {
     throw AppError.validation('Unknown academic year', { academicYearId: V.invalidChoice });
+  }
+}
+
+/** A newly assigned class teacher must be an active staff member of the same school. */
+async function assertTeacher(ex: Executor, orgId: string, teacherId: string | null | undefined) {
+  if (!teacherId) return;
+  const member = await staffRepo.findInOrg(orgId, teacherId, ex);
+  if (!member) throw AppError.validation('Unknown staff member', { teacherId: V.invalidChoice });
+  if (member.status !== 'active') {
+    throw AppError.validation('Inactive staff cannot be assigned', {
+      teacherId: V.inactiveTeacher,
+    });
   }
 }
 
@@ -33,6 +46,7 @@ export const classesService = {
   async create(user: AuthUser, input: z.output<typeof createClassSchema>): Promise<ClassDto> {
     return db.transaction(async (tx) => {
       await assertYearInOrg(tx, user.orgId, input.academicYearId);
+      await assertTeacher(tx, user.orgId, input.teacherId);
       const id = await classesRepo.insert(tx, { ...input, orgId: user.orgId });
       const dto = await classesRepo.findDto(user.orgId, id, tx);
       if (!dto) throw AppError.notFound('Class');
@@ -47,6 +61,7 @@ export const classesService = {
   ): Promise<ClassDto> {
     return db.transaction(async (tx) => {
       if (input.academicYearId) await assertYearInOrg(tx, user.orgId, input.academicYearId);
+      await assertTeacher(tx, user.orgId, input.teacherId);
       if (!(await classesRepo.update(tx, user.orgId, id, input))) {
         throw AppError.notFound('Class');
       }

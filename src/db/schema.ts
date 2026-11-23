@@ -18,6 +18,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 import {
   AUDIT_ACTIONS,
@@ -131,9 +132,14 @@ export const classes = pgTable(
     academicYearId: uuid('academic_year_id')
       .notNull()
       .references(() => academicYears.id),
+    /** Class teacher; cleared automatically if the staff record is deleted. */
+    teacherId: uuid('teacher_id').references((): AnyPgColumn => staff.id, { onDelete: 'set null' }),
     ...timestamps(),
   },
-  (t) => [unique('classes_org_year_name_key').on(t.orgId, t.academicYearId, t.name)],
+  (t) => [
+    unique('classes_org_year_name_key').on(t.orgId, t.academicYearId, t.name),
+    index('classes_teacher_idx').on(t.teacherId),
+  ],
 ).enableRLS();
 
 export const students = pgTable(

@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 
+import { V } from '@bareeq/shared';
 import type { createGuardianSchema, GuardianDto, updateGuardianSchema } from '@bareeq/shared';
 
 import { db } from '../../db/client.js';
@@ -8,6 +9,15 @@ import type { AuthUser } from '../../lib/types.js';
 import { studentsRepo } from '../students/students.repo.js';
 
 import { guardiansRepo, toGuardianDto } from './guardians.repo.js';
+
+/** The primary contact must be reachable (BUG-007). */
+function assertPrimaryHasPhone(isPrimary: boolean, phone: string | null | undefined): void {
+  if (isPrimary && !phone) {
+    throw AppError.validation('The primary contact needs a phone number', {
+      phone: V.primaryPhoneRequired,
+    });
+  }
+}
 
 export const guardiansService = {
   async list(user: AuthUser, studentId: string): Promise<GuardianDto[]> {
@@ -28,6 +38,7 @@ export const guardiansService = {
       // The first guardian is always primary; a new primary replaces the previous one.
       const isPrimary =
         input.isPrimary || (await guardiansRepo.countForStudent(tx, studentId)) === 0;
+      assertPrimaryHasPhone(isPrimary, input.phone);
       if (isPrimary) await guardiansRepo.clearPrimary(tx, studentId);
       const row = await guardiansRepo.insert(tx, {
         ...input,
@@ -52,6 +63,10 @@ export const guardiansService = {
           isPrimary: 'validation.primary_required',
         });
       }
+      assertPrimaryHasPhone(
+        input.isPrimary ?? before.isPrimary,
+        input.phone === undefined ? before.phone : input.phone,
+      );
       if (input.isPrimary) await guardiansRepo.clearPrimary(tx, before.studentId, id);
       const row = await guardiansRepo.update(tx, id, input);
       if (!row) throw AppError.notFound('Guardian');

@@ -49,6 +49,7 @@ async function createStudent(
       gender: 'female',
       classId,
       joinedOn: '2026-09-01',
+      primaryContact: { name: 'Father', relation: 'Father', phone: '+968 9000 0001' },
       ...overrides,
     });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -169,6 +170,46 @@ describe('classes', () => {
     expect(dup.status).toBe(409);
   });
 
+  it('assigns an active staff member as class teacher; the staff list shows their classes', async () => {
+    const teacher = staffSchema.parse(
+      (
+        await as(admin)
+          .post(`${API}/staff`)
+          .send({ fullName: `Teacher ${randomUUID().slice(0, 4)}`, designation: 'teacher' })
+      ).body,
+    );
+    const name = `Taught ${randomUUID().slice(0, 4)}`;
+    const res = await as(staff)
+      .post(`${API}/classes`)
+      .send({ name, grade: 'G', academicYearId: yearId, teacherId: teacher.id });
+    expect(res.status).toBe(201);
+    const cls = classSchema.parse(res.body);
+    expect(cls).toMatchObject({ teacherId: teacher.id, teacherName: teacher.fullName });
+
+    const list = paginated(staffSchema).parse(
+      (await as(viewer).get(`${API}/staff?search=${encodeURIComponent(teacher.fullName)}`)).body,
+    );
+    expect(list.data[0]?.classNames).toEqual([name]);
+
+    const unassign = await as(staff).patch(`${API}/classes/${cls.id}`).send({ teacherId: null });
+    expect(unassign.body).toMatchObject({ teacherId: null, teacherName: null });
+
+    await as(admin).patch(`${API}/staff/${teacher.id}`).send({ status: 'inactive' });
+    const inactive = await as(staff)
+      .patch(`${API}/classes/${cls.id}`)
+      .send({ teacherId: teacher.id });
+    expect(errorOf(inactive).details).toEqual({ teacherId: 'validation.inactive_teacher' });
+
+    const otherOrgStaff = staffSchema.parse(
+      (await as(otherAdmin).post(`${API}/staff`).send({ fullName: 'X', designation: 'other' }))
+        .body,
+    );
+    const foreign = await as(staff)
+      .patch(`${API}/classes/${cls.id}`)
+      .send({ teacherId: otherOrgStaff.id });
+    expect(errorOf(foreign).details).toEqual({ teacherId: 'validation.invalid_choice' });
+  });
+
   it('rejects an academic year from another org', async () => {
     const other = await as(otherAdmin)
       .post(`${API}/academic-years`)
@@ -209,16 +250,89 @@ describe('students', () => {
     expect(byClass.data.some((s) => s.id === id)).toBe(false);
   });
 
-  it('admission number is unique per org (409 with field detail)', async () => {
-    await createStudent(admin, { admissionNo: 'DUP-1' });
-    const res = await as(admin).post(`${API}/students`).send({
-      admissionNo: 'DUP-1',
+  it('requires a primary contact with a valid phone number', async () => {
+    const base = {
+      admissionNo: `PC-${randomUUID().slice(0, 6)}`,
       firstName: 'A',
       lastName: 'B',
       dob: '2017-01-01',
       gender: 'male',
       joinedOn: '2026-09-01',
+    };
+    const missing = await as(staff).post(`${API}/students`).send(base);
+    expect(missing.status).toBe(400);
+    expect(errorOf(missing).details).toHaveProperty('primaryContact');
+
+    const bad = await as(staff)
+      .post(`${API}/students`)
+      .send({ ...base, primaryContact: { name: '', relation: 'Father', phone: '12' } });
+    expect(errorOf(bad).details).toMatchObject({
+      'primaryContact.name': 'validation.required',
+      'primaryContact.phone': 'validation.invalid_phone',
     });
+  });
+
+  it('inactive students cannot be assigned to a class, but keep their class when deactivated', async () => {
+    const id = await createStudent(staff);
+    const deactivate = await as(staff).patch(`${API}/students/${id}`).send({ status: 'inactive' });
+    expect(deactivate.body).toMatchObject({ status: 'inactive', classId });
+
+    const other = classSchema.parse(
+      (
+        await as(staff)
+          .post(`${API}/classes`)
+          .send({ name: `Move ${randomUUID().slice(0, 4)}`, grade: 'G', academicYearId: yearId })
+      ).body,
+    );
+    const move = await as(staff).patch(`${API}/students/${id}`).send({ classId: other.id });
+    expect(move.status).toBe(400);
+    expect(errorOf(move).details).toEqual({ classId: 'validation.inactive_student_class' });
+
+    const created = await as(staff)
+      .post(`${API}/students`)
+      .send({
+        admissionNo: `IN-${randomUUID().slice(0, 6)}`,
+        firstName: 'I',
+        lastName: 'N',
+        dob: '2017-01-01',
+        gender: 'male',
+        joinedOn: '2026-09-01',
+        status: 'inactive',
+        classId,
+        primaryContact: { name: 'P', relation: 'Father', phone: '+968 9000 0003' },
+      });
+    expect(errorOf(created).details).toEqual({ classId: 'validation.inactive_student_class' });
+
+    const reactivateAndMove = await as(staff)
+      .patch(`${API}/students/${id}`)
+      .send({ status: 'active', classId: other.id });
+    expect(reactivateAndMove.body).toMatchObject({ status: 'active', classId: other.id });
+  });
+
+  it('lists students in natural admission-number order', async () => {
+    const tag = randomUUID().slice(0, 4).toUpperCase();
+    for (const n of ['10', '2', '100', '1']) {
+      await createStudent(staff, { admissionNo: `NAT${tag}-${n}`, classId: null });
+    }
+    const list = paginated(studentSchema).parse(
+      (await as(viewer).get(`${API}/students?search=NAT${tag}&pageSize=100`)).body,
+    );
+    expect(list.data.map((s) => s.admissionNo.split('-')[1])).toEqual(['1', '2', '10', '100']);
+  });
+
+  it('admission number is unique per org (409 with field detail)', async () => {
+    await createStudent(admin, { admissionNo: 'DUP-1' });
+    const res = await as(admin)
+      .post(`${API}/students`)
+      .send({
+        admissionNo: 'DUP-1',
+        firstName: 'A',
+        lastName: 'B',
+        dob: '2017-01-01',
+        gender: 'male',
+        joinedOn: '2026-09-01',
+        primaryContact: { name: 'P', relation: 'Father', phone: '+968 9000 0004' },
+      });
     expect(res.status).toBe(409);
     expect(errorOf(res).details).toEqual({ admissionNo: 'validation.admission_no_taken' });
 
@@ -256,22 +370,23 @@ describe('students', () => {
 });
 
 describe('guardians', () => {
-  it('first guardian becomes primary; a new primary replaces it; deleting promotes', async () => {
+  it('the primary contact from creation is primary; a new primary replaces it; deleting promotes', async () => {
     const studentId = await createStudent(staff);
-    const g1 = guardianSchema.parse(
-      (
-        await as(staff)
-          .post(`${API}/students/${studentId}/guardians`)
-          .send({ name: 'Father', relation: 'Father', phone: '+968 9000 0001' })
-      ).body,
-    );
-    expect(g1.isPrimary).toBe(true);
+    const initial = (await as(viewer).get(`${API}/students/${studentId}/guardians`))
+      .body as unknown[];
+    expect(initial.map((g) => guardianSchema.parse(g))).toMatchObject([
+      { name: 'Father', relation: 'Father', phone: '+968 9000 0001', isPrimary: true },
+    ]);
 
     const g2 = guardianSchema.parse(
       (
-        await as(staff)
-          .post(`${API}/students/${studentId}/guardians`)
-          .send({ name: 'Mother', relation: 'Mother', email: 'MUM@example.com', isPrimary: true })
+        await as(staff).post(`${API}/students/${studentId}/guardians`).send({
+          name: 'Mother',
+          relation: 'Mother',
+          phone: '+968 9000 0002',
+          email: 'MUM@example.com',
+          isPrimary: true,
+        })
       ).body,
     );
     expect(g2).toMatchObject({ isPrimary: true, email: 'mum@example.com' });
@@ -294,6 +409,26 @@ describe('guardians', () => {
     expect(after.map((g) => guardianSchema.parse(g))).toMatchObject([
       { name: 'Father', isPrimary: true },
     ]);
+  });
+
+  it('a primary guardian needs a valid phone number', async () => {
+    const studentId = await createStudent(staff);
+    const noPhone = await as(staff)
+      .post(`${API}/students/${studentId}/guardians`)
+      .send({ name: 'Aunt', relation: 'Aunt', isPrimary: true });
+    expect(noPhone.status).toBe(400);
+    expect(errorOf(noPhone).details).toEqual({ phone: 'validation.primary_phone_required' });
+
+    const badPhone = await as(staff)
+      .post(`${API}/students/${studentId}/guardians`)
+      .send({ name: 'Aunt', relation: 'Aunt', phone: 'call me' });
+    expect(errorOf(badPhone).details).toEqual({ phone: 'validation.invalid_phone' });
+
+    const [primary] = (await as(viewer).get(`${API}/students/${studentId}/guardians`)).body as {
+      id: string;
+    }[];
+    const clear = await as(staff).patch(`${API}/guardians/${primary?.id}`).send({ phone: '' });
+    expect(errorOf(clear).details).toEqual({ phone: 'validation.primary_phone_required' });
   });
 });
 
@@ -481,10 +616,8 @@ describe('reports, CSV and dashboard', () => {
       firstName: '=HYPERLINK("x")',
       lastName: 'Noor',
       nameAr: 'نور',
+      primaryContact: { name: 'Ali', relation: 'Father', phone: '+968 9555 0000' },
     });
-    await as(admin)
-      .post(`${API}/students/${paidStudent}/guardians`)
-      .send({ name: 'Ali', relation: 'Father', phone: '+968 9555 0000' });
     const f1 = await createFee(admin, paidStudent, '100.000');
     await pay(admin, f1.id, '40.000');
     const voidMe = await pay(admin, f1.id, '10.000', 'card');

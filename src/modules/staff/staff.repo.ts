@@ -1,4 +1,4 @@
-import { and, count, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, count, eq, getTableColumns, ilike, or, sql } from 'drizzle-orm';
 
 import type { StaffDto, StaffListQuery } from '@bareeq/shared';
 
@@ -8,22 +8,33 @@ import { staff } from '../../db/schema.js';
 import { likePattern, offsetOf, orderByOf } from '../../lib/pagination.js';
 
 type StaffRow = typeof staff.$inferSelect;
+type StaffRowWithClasses = StaffRow & { classNames: string[] };
+
+/** Names of the classes this staff member teaches, alphabetically (explicitly qualified). */
+const classNames = sql<string[]>`coalesce((
+  select array_agg(c."name" order by c."name") from "classes" c where c."teacher_id" = "staff"."id"
+), '{}')`;
+const withClasses = { ...getTableColumns(staff), classNames };
 type StaffInsert = typeof staff.$inferInsert;
 export type StaffPatch = Partial<
   Pick<StaffRow, 'fullName' | 'designation' | 'phone' | 'email' | 'status'>
 >;
 
-export const toStaffDto = (r: StaffRow): StaffDto => ({
+export const toStaffDto = (r: StaffRowWithClasses): StaffDto => ({
   id: r.id,
   fullName: r.fullName,
   designation: r.designation,
   phone: r.phone,
   email: r.email,
   status: r.status,
+  classNames: r.classNames,
 });
 
 export const staffRepo = {
-  async list(orgId: string, q: StaffListQuery): Promise<{ rows: StaffRow[]; total: number }> {
+  async list(
+    orgId: string,
+    q: StaffListQuery,
+  ): Promise<{ rows: StaffRowWithClasses[]; total: number }> {
     const pattern = q.search ? likePattern(q.search) : undefined;
     const where = and(
       eq(staff.orgId, orgId),
@@ -43,14 +54,28 @@ export const staffRepo = {
       sql`lower(${staff.fullName}) asc`,
     );
     const [rows, [{ total } = { total: 0 }]] = await Promise.all([
-      db.select().from(staff).where(where).orderBy(orderBy).limit(q.pageSize).offset(offsetOf(q)),
+      db
+        .select(withClasses)
+        .from(staff)
+        .where(where)
+        .orderBy(orderBy)
+        .limit(q.pageSize)
+        .offset(offsetOf(q)),
       db.select({ total: count() }).from(staff).where(where),
     ]);
     return { rows, total };
   },
 
-  async insert(ex: Executor, values: StaffInsert): Promise<StaffRow> {
-    const [row] = await ex.insert(staff).values(values).returning();
+  async findInOrg(orgId: string, id: string, ex: Executor = db): Promise<StaffRow | undefined> {
+    const [row] = await ex
+      .select()
+      .from(staff)
+      .where(and(eq(staff.orgId, orgId), eq(staff.id, id)));
+    return row;
+  },
+
+  async insert(ex: Executor, values: StaffInsert): Promise<StaffRowWithClasses> {
+    const [row] = await ex.insert(staff).values(values).returning(withClasses);
     if (!row) throw new Error('Staff insert returned no row');
     return row;
   },
@@ -60,12 +85,12 @@ export const staffRepo = {
     orgId: string,
     id: string,
     patch: StaffPatch,
-  ): Promise<StaffRow | undefined> {
+  ): Promise<StaffRowWithClasses | undefined> {
     const [row] = await ex
       .update(staff)
       .set(patch)
       .where(and(eq(staff.orgId, orgId), eq(staff.id, id)))
-      .returning();
+      .returning(withClasses);
     return row;
   },
 };

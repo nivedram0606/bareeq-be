@@ -68,8 +68,14 @@ export function studentWhere(orgId: string, f: StudentFilters): SQL | undefined 
   );
 }
 
+/**
+ * Natural order for admission numbers (collation from migration 0005): digit runs compare as
+ * numbers, so ADM-2 < ADM-10 < ADM-100 where plain text order gives ADM-10 < ADM-100 < ADM-2.
+ */
+const admissionNoNatural = sql`${students.admissionNo} collate "natural_sort"`;
+
 export const studentSortColumns = {
-  admissionNo: students.admissionNo,
+  admissionNo: admissionNoNatural,
   firstName: students.firstName,
   lastName: students.lastName,
   className: classes.name,
@@ -77,7 +83,7 @@ export const studentSortColumns = {
   joinedOn: students.joinedOn,
   createdAt: students.createdAt,
 };
-export const defaultStudentOrder = sql`lower(${students.lastName}) asc, lower(${students.firstName}) asc`;
+export const defaultStudentOrder = sql`${admissionNoNatural} asc`;
 
 export const studentsRepo = {
   async list(orgId: string, q: StudentListQuery): Promise<{ rows: StudentDto[]; total: number }> {

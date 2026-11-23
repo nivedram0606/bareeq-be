@@ -4,12 +4,14 @@ import type { ClassDto, ClassListQuery } from '@bareeq/shared';
 
 import { db } from '../../db/client.js';
 import type { Executor } from '../../db/client.js';
-import { academicYears, classes } from '../../db/schema.js';
+import { academicYears, classes, staff } from '../../db/schema.js';
 import { likePattern, offsetOf, orderByOf } from '../../lib/pagination.js';
 
 type ClassRow = typeof classes.$inferSelect;
 type ClassInsert = typeof classes.$inferInsert;
-export type ClassPatch = Partial<Pick<ClassRow, 'name' | 'grade' | 'section' | 'academicYearId'>>;
+export type ClassPatch = Partial<
+  Pick<ClassRow, 'name' | 'grade' | 'section' | 'academicYearId' | 'teacherId'>
+>;
 
 // Correlated subquery with explicit qualification (see fees.repo.ts for why).
 const activeStudentCount = sql<number>`(
@@ -24,6 +26,8 @@ const selection = {
   section: classes.section,
   academicYearId: classes.academicYearId,
   academicYearName: academicYears.name,
+  teacherId: classes.teacherId,
+  teacherName: staff.fullName,
   studentCount: activeStudentCount,
 };
 
@@ -49,6 +53,7 @@ export const classesRepo = {
         .select(selection)
         .from(classes)
         .innerJoin(academicYears, eq(academicYears.id, classes.academicYearId))
+        .leftJoin(staff, eq(staff.id, classes.teacherId))
         .where(where)
         .orderBy(orderBy)
         .limit(q.pageSize)
@@ -63,6 +68,7 @@ export const classesRepo = {
       .select(selection)
       .from(classes)
       .innerJoin(academicYears, eq(academicYears.id, classes.academicYearId))
+      .leftJoin(staff, eq(staff.id, classes.teacherId))
       .where(and(eq(classes.orgId, orgId), eq(classes.id, id)));
     return row;
   },
