@@ -537,6 +537,46 @@ describe('staff directory', () => {
     expect(res.status).toBe(400);
     expect(errorOf(res).details).toEqual({ designation: 'validation.invalid_choice' });
   });
+
+  it('rejects a second record with the same e-mail or phone, even when the first is inactive', async () => {
+    const first = staffSchema.parse(
+      (
+        await as(admin).post(`${API}/staff`).send({
+          fullName: 'Amal',
+          designation: 'teacher',
+          phone: '8529 637 415',
+          email: 'amal.dup@example.com',
+          status: 'inactive',
+        })
+      ).body,
+    );
+    const dup = await as(admin).post(`${API}/staff`).send({
+      fullName: 'Amal',
+      designation: 'teacher',
+      phone: '852-963-7415',
+      email: 'AMAL.DUP@example.com',
+    });
+    expect(dup.status).toBe(400);
+    expect(errorOf(dup).details).toEqual({
+      email: 'validation.duplicate_staff_email',
+      phone: 'validation.duplicate_staff_phone',
+    });
+
+    const other = staffSchema.parse(
+      (await as(admin).post(`${API}/staff`).send({ fullName: 'B', designation: 'other' })).body,
+    );
+    const steal = await as(admin)
+      .patch(`${API}/staff/${other.id}`)
+      .send({ email: 'amal.dup@example.com' });
+    expect(steal.status).toBe(400);
+    expect(errorOf(steal).details).toEqual({ email: 'validation.duplicate_staff_email' });
+
+    // Saving a record with its own details is fine.
+    const self = await as(admin)
+      .patch(`${API}/staff/${first.id}`)
+      .send({ phone: '8529637415', email: 'amal.dup@example.com', status: 'active' });
+    expect(self.status).toBe(200);
+  });
 });
 
 describe('org isolation', () => {

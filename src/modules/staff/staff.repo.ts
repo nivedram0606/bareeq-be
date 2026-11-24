@@ -31,6 +31,32 @@ export const toStaffDto = (r: StaffRowWithClasses): StaffDto => ({
 });
 
 export const staffRepo = {
+  /**
+   * Another staff member in the org (any status) with the same e-mail (case-insensitive) or the
+   * same phone (digits only), ignoring `exceptId`.
+   */
+  async findDuplicate(
+    orgId: string,
+    { email, phone }: { email?: string | null; phone?: string | null },
+    exceptId?: string,
+  ): Promise<{ email: boolean; phone: boolean }> {
+    const digits = phone?.replace(/\D/g, '') ?? '';
+    const emailMatch = email
+      ? sql<boolean>`lower(${staff.email}) = lower(${email})`
+      : sql<boolean>`false`;
+    const phoneMatch = digits
+      ? sql<boolean>`regexp_replace(coalesce(${staff.phone}, ''), '\\D', '', 'g') = ${digits}`
+      : sql<boolean>`false`;
+    const [row] = await db
+      .select({
+        email: sql<boolean>`coalesce(bool_or(${emailMatch}), false)`,
+        phone: sql<boolean>`coalesce(bool_or(${phoneMatch}), false)`,
+      })
+      .from(staff)
+      .where(and(eq(staff.orgId, orgId), exceptId ? sql`${staff.id} <> ${exceptId}` : undefined));
+    return { email: row?.email ?? false, phone: row?.phone ?? false };
+  },
+
   async list(
     orgId: string,
     q: StaffListQuery,
